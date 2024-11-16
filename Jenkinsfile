@@ -1,40 +1,68 @@
 pipeline {
-    agent { label "dev-server"}
+    agent any
     
+    environment{
+        Sonar_Home = tool "sonar-scanner"
+    }
+
     stages {
-        
-        stage("code"){
-            steps{
-                git url: "https://github.com/LondheShubham153/node-todo-cicd.git", branch: "master"
-                echo 'bhaiyya code clone ho gaya'
+        stage('Git Clone') {
+            steps {
+                git branch: 'main', url: 'https://github.com/udayyysharmaa/Node-Todo-App.git'
             }
         }
-        stage("build and test"){
-            steps{
-                sh "docker build -t node-app-test-new ."
-                echo 'code build bhi ho gaya'
+        stage('Sonar-qube-check') {
+            steps {
+                withSonarQubeEnv('sonar') {
+                sh "$Sonar_Home/bin/sonar-scanner -Dsonar.projectName=nodeproject -Dsonar.projectKey=nodeproject"
+    }
             }
         }
-        stage("scan image"){
-            steps{
-                echo 'image scanning ho gayi'
+        stage('Quality Gate Check') {
+            steps {
+                timeout(time: 1, unit: 'HOURS') {
+                    waitForQualityGate abortPipeline: false
+                }
+                
             }
         }
-        stage("push"){
-            steps{
-                withCredentials([usernamePassword(credentialsId:"dockerHub",passwordVariable:"dockerHubPass",usernameVariable:"dockerHubUser")]){
-                sh "docker login -u ${env.dockerHubUser} -p ${env.dockerHubPass}"
-                sh "docker tag node-app-test-new:latest ${env.dockerHubUser}/node-app-test-new:latest"
-                sh "docker push ${env.dockerHubUser}/node-app-test-new:latest"
-                echo 'image push ho gaya'
+        stage('Trivy Check') {
+            steps {
+                sh "trivy fs --format json -o file.json ."
+            }
+        }
+        stage('doker Image') {
+            steps {
+                script{
+                    withDockerRegistry(credentialsId: 'dockerhub') {
+                        sh "docker build -t onlinelearningofficial/node-project:v1 ."
+                    }
                 }
             }
         }
-        stage("deploy"){
-            steps{
-                sh "docker-compose down && docker-compose up -d"
-                echo 'deployment ho gayi'
+        stage('Image Scan') {
+            steps {
+                sh "trivy image --format json -o image.js onlinelearningofficial/node-project:v1 "
             }
         }
+        stage('Push To Docker Hub') {
+            steps {
+                script{
+                    withDockerRegistry(credentialsId: 'dockerhub') {
+                        sh "docker push onlinelearningofficial/node-project:v1 "
+                    }
+                }
+            }
+        }
+        stage('Build the Project') {
+            steps {
+                script{
+                    withDockerRegistry(credentialsId: 'dockerhub') {
+                        sh "docker run -d -p 8000:8000 onlinelearningofficial/node-project:v1 "
+                    }
+                }
+            }
+        }
+
     }
 }
